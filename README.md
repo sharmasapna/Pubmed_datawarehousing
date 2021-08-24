@@ -4,7 +4,7 @@ Steps involved:
 2. Studying the various tabs
 3. Making an ERD for the proposed realational database schema
     ERD:
-    <p align="center">
+    <p align="left">
     <img src="https://github.com/sharmasapna/Pubmed_datawarehousing/blob/main/images/Relational_database_ERD.png" width= 50% height= 50%>
     </p>
 4. Creating SQL tables in database
