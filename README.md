@@ -12,4 +12,5 @@ Steps involved:
   9.1 Creating Summary Fact Tables
   9.2 Visualising the Data for seasonal Patterns in Journal Publication
 Some visualizations are here
-![Imgur Image](https://github.com/sharmasapna/Pubmed_datawarehousing/blob/main/images/image1.png = 50x50)
+/*![Imgur Image](https://github.com/sharmasapna/Pubmed_datawarehousing/blob/main/images/image1.png = 50x50)*/
+<img src="https://github.com/sharmasapna/Pubmed_datawarehousing/blob/main/images/image1.png" width= 50% height= 50%>
