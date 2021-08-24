@@ -1,0 +1,957 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+### Here we create a normalized relational schema that contains the following entities: Article, Journal, Author, PubDate. We ahve used a sample data of the publicly available XML document of Pubmed to determine the appropriate attributes (fields/columns) for the entities (tables). While there may be other types of publications in the XML, we will be considering articles in journals. We have created appropriate primary and foreign keys. Surrogate keys were added  where ever necessary. An image of the proposed ERD of the model is  included.
+
+Here is the proposed ERD diagram(see below) to include Article, Journal, Author, History as the subject entities.  We have created the appropriate primary and foreign keys and have added surrogate keys where ever necessary.     
+
+We have created 7 tables as follows:
+
+1. Article - Storing details about the article, like its title, journal where it was published and the list of the authors who published it.
+
+2. Journal - Storing the journal details    
+
+3. Authorlist - Storing the author list   
+
+4. Date - Soring of Publishing the dates   
+
+5. Author -  Storing the details of Authors   
+ 
+\begin{figure}
+  \includegraphics{erd_answer_1.png}
+  \caption{ERD Diagram for Pubmed Data}
+\end{figure}
+
+### Loading the packages
+```{r}
+library(XML)
+library(RSQLite)
+library(methods)
+library(dplyr)
+library(dbplyr)
+library(ggplot2)
+```
+### Parsing the xml data
+```{r }
+# parsing the xml file
+xmlDoc  <- xmlParse("pubmed_sample.xml")
+#print(xmlDoc)
+# getting the root node of the tree
+r <- xmlRoot(xmlDoc)
+numArticles <- xmlSize(r)
+numArticles
+```
+### Realizing the relational schema in SQLite by placing the  CREATE TABLE statements into SQL chunks of this R Notebook.
+   
+Connecting to PubmedBD database and creating the SQL tables in the database.
+### Connecting to Database
+```{r}
+dbcon <- dbConnect(SQLite(), dbname="PubmedDB.db")
+```
+
+### Dropping the tables if they already exist.
+```{sql connection=dbcon}
+DROP TABLE IF EXISTS pubdate
+```
+```{sql connection=dbcon}
+DROP TABLE IF EXISTS author
+```
+```{sql connection=dbcon}
+DROP TABLE IF EXISTS authorlist
+```
+```{sql connection=dbcon}
+DROP TABLE IF EXISTS  journal
+```
+```{sql connection=dbcon}
+DROP TABLE IF EXISTS  article
+```
+###Creating  pubdate SQL table for the schema:
+```{sql connection=dbcon}
+--creating pubdate table
+CREATE TABLE IF NOT  EXISTS pubdate(
+  pubdate_id INT NOT NULL PRIMARY KEY,
+  pubdateyear INT NOT NULL,
+  pubdatemonth INT NOT NULL
+  );
+```
+### Creating  authorlist SQL table for the schema:
+```{sql connection=dbcon}
+--creating authorlist table
+CREATE TABLE IF NOT  EXISTS authorlist(
+  authorlist_id INT NOT  NULL PRIMARY KEY,
+  authorlist_num INT NOT NULL,
+  author_id INT NOT NULL,
+  FOREIGN KEY (author_id) REFERENCES author(author_id)
+);
+```
+### Creating  author SQL table for the schema:
+```{sql connection=dbcon}
+--creating author table
+CREATE TABLE IF NOT  EXISTS author(
+  aothor_id INT NOT NULL PRIMARY KEY,
+  lastname VARCHAR(300) NOT NULL,
+  forename VARCHAR(300) NOT NULL,
+  initials VARCHAR(300) NOT NULL,
+  affiliation VARCHAR(300) NOT NULL
+);
+```
+###Creating  journal SQL table for the schema:
+```{sql connection=dbcon}
+--creating journal table
+CREATE TABLE IF NOT  EXISTS journal(
+  journal_id INT NOT NULL PRIMARY KEY,
+  issn_type VARCHAR(30) NOT NULL,
+  ISSN VARCHAR(30) NOT NULL,
+  citedmedium VARCHAR(30) NOT NULL,
+  volume VARCHAR(30) NOT NULL,
+  issue VARCHAR(30) NOT NULL,
+  pubdate_id INT NOT NULL,
+  title VARCHAR(300) NOT NULL,
+  isoabbr VARCHAR(30) NOT NULL,
+  FOREIGN KEY (pubdate_id) REFERENCES pubdate(pubdate_id)
+);
+```
+### Creating  article SQL table for the schema:
+```{sql connection=dbcon}
+--creating article table
+CREATE TABLE IF NOT  EXISTS article(
+  article_id INT NOT NULL PRIMARY KEY,
+  journal_id INT NOT NULL,
+  authorlist_id INT NOT NULL,
+  article_title VARCHAR(300) NOT NULL,
+  article_lang VARCHAR(30) NOT NULL,
+  FOREIGN KEY (journal_id) REFERENCES journal(journal_id)
+  FOREIGN KEY (authorlist_id) REFERENCES authorlist(authorlist_id)
+);
+```
+
+
+Extracting  and transforming the data from the XML and then loading into the appropriate tables in the database.
+
+### Parsing the xml data
+```{r parsingdata}
+# parsing the xml file
+xmlDoc  <- xmlParse("pubmed_sample.xml")
+#print(xmlDoc)
+```
+### Getting the XML data information
+```{r gettingrootnode}
+# getting the first node 
+r <-  xmlRoot(xmlDoc)
+anArticle <- r[[1]]
+
+# getting the number of articles
+numArticles <- xmlSize(r)
+b<- xpathSApply(anArticle, "//PubmedArticleSet/PubmedArticle/MedlineCitation/Article", xmlValue)
+numArticles
+
+#creating our operator for "not in"
+`%notin%` = Negate(`%in%`)
+```
+### This block contains all the getter functions to extract the values from the xml
+```{r getterfunctions}
+#################### getting the article details
+anArticle <- r[[1]]
+get_articlepubmodel <- function(anArticle){return 
+  (xpathSApply(anArticle, ".//MedlineCitation/Article/@PubModel"
+  ))}
+get_articlelang <- function(anArticle){return
+(xpathSApply(anArticle, ".//MedlineCitation/Article/Language", 
+               xmlValue))}
+
+################## getting the journal details
+get_journalissntype <- function(anArticle){return 
+(xpathSApply(anArticle, ".//MedlineCitation/Article/Journal/ISSN/@IssnType"
+             ))}
+get_journalissn <- function(anArticle){return 
+(xpathSApply(anArticle, ".//MedlineCitation/Article/Journal/ISSN",
+             xmlValue))}
+get_journalissuecitemedium <- function(anArticle){return 
+(xpathSApply(anArticle, ".//MedlineCitation/Article/Journal/JournalIssue/@CitedMedium"
+             ))}
+get_journalissue_vol <- function(anArticle){return 
+(xpathSApply(anArticle, ".//MedlineCitation/Article/Journal/JournalIssue/Volume",
+               xmlValue))}
+get_journalissue_issue <- function(anArticle){return 
+(xpathSApply(anArticle, ".//MedlineCitation/Article/Journal/JournalIssue/Issue",
+             xmlValue))}
+get_journalissue_pubdate_year <- function(anArticle){return 
+(xpathSApply(anArticle, ".//MedlineCitation/Article/Journal/JournalIssue/PubDate/Year",
+               xmlValue))}
+get_journalissue_pubdate_month <- function(anArticle){return
+(xpathSApply(anArticle, ".//MedlineCitation/Article/Journal/JournalIssue/PubDate/Month",
+               xmlValue))}
+get_journalissue_pubdatemedlinedate <- function(anArticle){return 
+(xpathSApply(anArticle, ".//MedlineCitation/Article/Journal/JournalIssue/PubDate/MedlineDate",
+               xmlValue))}
+get_journaltitle <- function(anArticle){return 
+(xpathSApply(anArticle, ".//MedlineCitation/Article/Journal/Title",
+               xmlValue))}
+get_journalisoabb<- function(anArticle){return 
+(xpathSApply(anArticle, ".//MedlineCitation/Article/Journal/ISOAbbreviation",
+               xmlValue))}
+#################### getting the article title
+get_articletitle <- function(anArticle){return
+(xpathSApply(anArticle, ".//MedlineCitation/Article/ArticleTitle", 
+               xmlValue))}
+
+#################### getting the authorlist and author details
+get_authorlistcompleteyn <- function(anArticle){return
+(xpathSApply(anArticle, ".//MedlineCitation/Article/AuthorList/@CompleteYN" 
+               ))}
+get_authorvalidyn <- function(anArticle){return
+(xpathSApply(anArticle, ".//MedlineCitation/Article/AuthorList/Author/@ValidYN" 
+               ))}
+get_authorlastname <- function(anArticle){return 
+(xpathSApply(anArticle, ".//MedlineCitation/Article/AuthorList/Author/LastName", 
+             xmlValue))}
+get_authorforename <- function(anArticle){return 
+(xpathSApply(anArticle, ".//MedlineCitation/Article/AuthorList/Author/ForeName", 
+               xmlValue))}
+get_authorinitials <- function(anArticle){return 
+(xpathSApply(anArticle, ".//MedlineCitation/Article/AuthorList/Author/Initials", 
+               xmlValue))}
+get_authoraffln <- function(anArticle){return 
+(xpathSApply(anArticle, ".//MedlineCitation/Article/AuthorList/Author/Affiliation", 
+               xmlValue))}
+```
+### Testing the getter functions for an article
+```{r testingfuncions}
+anArticle <- r[[1]]
+get_articlepubmodel(anArticle)
+get_journalissntype(anArticle)
+get_journalissn(anArticle)
+get_journalissuecitemedium(anArticle)
+get_journalissue_vol(anArticle)
+get_journalissue_issue(anArticle)
+get_journalissue_pubdate_year(anArticle)
+get_journalissue_pubdate_month(anArticle)
+get_journalissue_pubdatemedlinedate(anArticle)
+get_journaltitle(anArticle)
+get_journalisoabb(anArticle)
+get_articletitle(anArticle)
+get_authorlistcompleteyn(anArticle)
+get_authorvalidyn(anArticle)
+get_authorlastname(anArticle)
+get_authorforename(anArticle)
+get_authorinitials(anArticle)
+get_authoraffln(anArticle)
+get_articletitle(anArticle)
+get_articlelang(anArticle)
+```
+### Creating and filing the tables as we loop through the XML file
+```{r datafilling}
+ numArticles <- xmlSize(r)
+
+PubDate.df <- data.frame(pubdate_id = integer(),
+                         pubdateyear = integer(),
+                         pubdatemonth = character(),
+                         stringsAsFactors = F)
+Journal.df <- data.frame (journal_id = integer(),
+                          issn_type = character(),
+                          issn = character(),
+                          citedmedium = character(),
+                          volume = character(),
+                          issue = character(),
+                          pubdate_id = integer(),
+                          title = character(),
+                          isoabbr = character(),
+                          stringsAsFactors = F)
+AuthorList.df <- data.frame (authorlist_id = integer(),
+                             authorlist_num = integer(),
+                          author_id = character(),
+                          stringsAsFactors = F)
+Author.df <- data.frame (author_id = integer(),
+                          last_name = character(),
+                          fore_name = character(),
+                          initials = character(),
+                          affiliation = character(),
+                          stringsAsFactors = F)
+Article.df <- data.frame (article_id = integer(),
+                          article_pubmodel = character(),
+                          journal_id = integer(),
+                          authorlist_id = integer(),
+                          article_title = integer(),
+                          article_lang = integer(),
+                          stringsAsFactors = F)
+
+
+  jid   <- 1000
+  alid  <-  100
+  pbid  <-   10
+  aid   <-    5
+  artid <-    1
+  athlnm <-   1
+  for (i in 1:numArticles)
+  {
+    # get next book node
+    anArticle <- r[[i]]
+    calid <- alid
+    # for filling the journal
+    a<- get_journalissntype(anArticle)
+    b<- get_journalissn(anArticle)
+    c<- get_journalissuecitemedium(anArticle)
+    d<- get_journalissue_vol(anArticle)
+    e<- get_journalissue_issue(anArticle)
+    g<- get_journaltitle(anArticle)
+    h<- get_journalisoabb(anArticle)
+    ii<- get_authorlastname(anArticle)
+    j<- get_authorforename(anArticle)
+    k<- get_authorinitials(anArticle)
+    l<- get_authoraffln(anArticle)
+    l1<- get_articlepubmodel(anArticle)
+    n<- get_articletitle(anArticle)
+    o<- get_articlelang(anArticle)
+    
+    #filling the pubdate.df
+    y <- ""
+    m <- ""
+    y<- get_journalissue_pubdate_year(anArticle)
+    m<-get_journalissue_pubdate_month(anArticle)
+    md<-get_journalissue_pubdatemedlinedate(anArticle) 
+
+    if (length(y) == 0){y <- ""}
+    if (length(m) == 0){m <- ""}
+    if (length(md) == 0){md <- ""}
+    # filling with medlinedate where year and month are not present
+    if (y == "" & m == ""){
+                            y <- substring(md,1,4)
+                            m <- substring(md,6,8)
+                          }
+
+    # filling the missing value 
+    if (y == ""){y<-"0000"}
+    if (m == ""){m<-"NON"}
+  
+    # filling the PubDate.df
+    
+    # checking if author name does not exist in the table
+    if (length(PubDate.df$pubdate_id[which(PubDate.df$pubdateyear == y &
+                PubDate.df$pubdatemonth == m )] ) > 0)
+              {
+                f <- PubDate.df$pubdate_id[which(PubDate.df$pubdateyear == y &
+                        PubDate.df$pubdatemonth == m )]
+                    #print(f)
+                    #print("from pubdate table")
+              }
+    else   
+              {
+    #######################################
+    # filling PubDate.df table
+    #######################################
+                 # Creating new row for PubDate.df
+                  newpd <- c(pbid,y,m)                           
+                  f<- pbid
+                  PubDate.df[nrow(PubDate.df) + 1, ] <- newpd  # Adding new row
+                  pbid <- pbid+10
+                  #print(f)
+                  #print("from new table entry")
+              }
+    
+    #######################################
+    # filling Journal.df table
+    #######################################
+    # Creating new row for Journal.df
+    newj <- c(jid,a,b,c,d,e,f,g,h)      
+    Journal.df[nrow(Journal.df) + 1, ] <- newj  # Adding new row
+    
+    #######################################
+    # filling Author.df and AuthorList.df tables
+    #######################################
+    ln <- length(ii)
+    for (kk in 1:ln){
+                    ln <- ii[kk]
+                    fn <- j[kk]
+                    ini <- k[kk]
+                   
+                   if( length(Author.df$author_id[which(Author.df$last_name == ln &
+                              Author.df$fore_name == fn &
+                              Author.df$initials == ini)]) >0)
+                          { aid <- Author.df$author_id[which(Author.df$last_name == ln &
+                                  Author.df$fore_name == fn &
+                                  Author.df$initials == ini)]
+                            aid <- as.integer(aid)
+                          # fill author list with this author id
+                          
+                          newauthorlist <- c(alid,athlnm,aid)
+                          AuthorList.df[nrow(AuthorList.df) + 1, ] <- newauthorlist  
+                          alid <- alid +100
+                           }
+                     
+                    else  { 
+                        
+                            newauthor <- c(aid,ln,fn,ini,l)
+                            Author.df[nrow(Author.df) + 1, ] <- newauthor
+                            newauthorlist <- c(alid,athlnm,aid)
+                            AuthorList.df[nrow(AuthorList.df) + 1, ] <- newauthorlist
+                            alid <- alid +100
+                            aid <- aid + 10
+                          }
+
+    }
+    ##########################
+    # newrow for article.df
+    ##########################
+    newarticle <- c(artid,l1,jid,athlnm,n,o)
+    Article.df[nrow(Article.df) + 1, ] <- newarticle
+    jid<-jid+100
+    alid <- alid + 100
+    #aid <- aid +10
+    artid <- artid +1
+    athlnm <- athlnm+1
+  }
+```
+
+We see that we have missing value for the month. so we fill it with mode value as follows
+```{r}
+table(PubDate.df$pubdatemonth)
+```
+We see that March and January are the months having maximum appearance. So we pick March to replace the single missing value, under the assumption that academic activity is higher in March than January
+```{r}
+PubDate.df$pubdatemonth[ PubDate.df$pubdatemonth == "NON"] <- "Mar"
+#PubDate.df
+is.null(PubDate.df$pubdatemonth)
+```
+### Writing the dataframes to appropriate tables   
+```{r sqltable_populate}
+# writing data in the sql tables
+dbWriteTable(dbcon, 'pubdate', PubDate.df,overwrite = T)
+dbWriteTable(dbcon, 'author', Author.df,overwrite = T)
+dbWriteTable(dbcon, 'authorlist', AuthorList.df,overwrite = T)
+dbWriteTable(dbcon, 'journal', Journal.df,overwrite = T)
+dbWriteTable(dbcon, 'article', Article.df,overwrite = T)
+```
+
+```{sql connection = dbcon}
+select * from author
+limit 3
+```
+### Creating  Snowflake Schema with dimension and transaction fact tables. An image of an updated ERD that contains the fact table and any additional required dimension tables is presented below.
+
+Here is a snow flake shcema for article fact table.
+
+\begin{figure}
+  \includegraphics{Snow_Flake_ERD.png}
+  \caption{ERD Diagram for Snow Flake Schema with dimension and transaction fact tables for Pubmed Data}
+\end{figure}
+
+Since the some of the tables in the  original relational database that we made are the same as that of Fact table schema, We will use them as it is for the star/snowflake schema we designed.Although we have some minor name differences and an additional column in PubdateDim, that we will fill after creation of the table.
+
+```{sql connection=dbcon}
+DROP TABLE JournalDim;
+```
+### creating JournalDim table
+```{sql connection=dbcon}
+--Create and load 
+CREATE TABLE JournalDim AS
+SELECT *
+FROM
+Journal;
+```
+```{sql connection=dbcon}
+DROP TABLE AuthorDim
+```
+### creating AuthorDim table
+```{sql connection=dbcon}
+--Create and load 
+CREATE TABLE AuthorDim AS
+SELECT *
+FROM
+Author;
+```
+```{sql connection=dbcon}
+DROP TABLE AuthorListDim
+```
+### creating AuthorListDim table
+```{sql connection=dbcon}
+--Create and load 
+CREATE TABLE AuthorListDim AS
+SELECT *
+FROM
+authorlist;
+```
+```{sql connection=dbcon}
+DROP TABLE ArticleDim
+```
+### creating ArticleDim table
+```{sql connection=dbcon}
+CREATE TABLE ArticleDim    AS
+SELECT article_id,article_pubmodel,article_title,article_lang
+FROM Article
+```
+
+```{sql connection=dbcon}
+DROP TABLE PubDateDim
+```
+### creating PubDateDim table
+```{sql connection=dbcon}
+CREATE TABLE  PubDateDim   AS
+SELECT *
+FROM PubDate 
+```
+### Adding the additional column for season in PubDateDim table
+```{sql connection=dbcon}
+ALTER TABLE PubDateDim
+ADD season VARCHAR(30);
+```
+
+```{sql connection=dbcon}
+UPDATE  PubDateDim
+SET season = 
+CASE
+WHEN pubdatemonth IN ("Mar","Apr","May") THEN "Spring"
+WHEN pubdatemonth IN ("Jun","Jul","Aug") THEN "Summer"
+WHEN pubdatemonth IN ("Sep","Oct","Nov") THEN "Fall"
+WHEN pubdatemonth IN ("Dec","Jan","Feb") THEN "Winter"
+END;
+```
+
+```{sql connection=dbcon}
+select * from PubdateDim
+limit 3
+```
+
+```{sql connection=dbcon}
+DROP TABLE IF EXISTS ArticleFact;
+```
+### Creating ArticleFact table
+```{sql connection=dbcon}
+--creating article fact  table
+CREATE TABLE IF NOT  EXISTS ArticleFact(
+  article_fact_id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  journal_id INTEGER NOT NULL,
+  authorlist_id INTEGER NOT NULL,
+  article_id INTEGER NOT NULL,
+  pubdate_id INTEGER NOT NULL,
+  FOREIGN KEY (journal_id) REFERENCES JournalDim(journal_id)
+  FOREIGN KEY (authorlist_id) REFERENCES AuthorListDim(authorlist_id)
+  FOREIGN KEY (article_id) REFERENCES ArticleDim(article_id)
+  FOREIGN KEY (pubdate_id) REFERENCES PubDateDim(pubdate_id)
+);
+```
+### Inserting data into ArticleFact table
+```{sql connection=dbcon}
+INSERT INTO ArticleFact
+
+SELECT article.article_id,
+journal.journal_id,
+article.authorlist_id,
+article.article_id,
+pubdate.pubdate_id
+
+FROM article 
+JOIN pubdate ON journal.pubdate_id = pubdate.pubdate_id
+JOIN journal ON journal.journal_id = article.journal_id;
+```
+
+
+### We now create and populate a summary fact table, that represents number of articles per time period (quarter, year) by author and by journal. Image of an updated ERD that contains the fact table is presented below. 
+Here is the ERD for the summary fact table 
+\begin{figure}
+  \includegraphics{Summary_ERD.png}
+  \caption{ERD Diagram for Pubmed Data}
+\end{figure}
+### Creating ArticleFactSummary table
+```{r}
+ArticleFactSummary.df <- data.frame (art_id = integer(),
+                          yr_pub = integer(),
+                          season_pub = integer(),
+                          art_count = character(),
+                          stringsAsFactors = F)
+```
+### Extracting values to insert in ArticleFactSummary
+```{sql connection=dbcon,, output.var="temp.df"}
+select count(ArticleFact.article_id) as cnt from ArticleFact
+```
+### Extracting data
+```{sql connection=dbcon,, output.var="temp1.df"}
+select pubdate.pubdateyear,  count(ArticleFact.article_id) as cnt from ArticleFact
+join pubdate on ArticleFact.pubdate_id = pubdate.pubdate_id
+group by pubdate.pubdateyear
+```
+### Inserting rows in ArticleFactSummary table
+```{r}
+x<-temp.df$cnt[1]
+afid = 1
+newrow <- c(afid,0,0,x)
+ArticleFactSummary.df[nrow(ArticleFactSummary.df) + 1, ] <- newrow
+ArticleFactSummary.df
+```
+
+```{r}
+len <- count(temp1.df)[[1]]
+yr_num = 1
+afid <- last(ArticleFactSummary.df$art_id) +1
+for (i in 1:len){
+  newrow <- c(afid,yr_num, 0,temp1.df$cnt[i])
+  ArticleFactSummary.df[nrow(ArticleFactSummary.df) + 1, ] <- newrow
+  yr_num <- yr_num +1
+  afid <- afid +1
+} 
+ArticleFactSummary.df
+```
+### Extracting data
+```{sql connection=dbcon,, output.var="temp2.df"}
+select PubDateDim.season,  count(ArticleFact.article_id) as cnt 
+from ArticleFact
+join PubDateDim on ArticleFact.pubdate_id = PubDateDim.pubdate_id
+group by PubDateDim.season
+```
+### Inserting data
+```{r}
+len <- count(temp2.df)[[1]]
+yr_num <- 0
+season_num <- 1
+afid <- last(ArticleFactSummary.df$art_id) +1
+for (i in 1:len){
+  newrow <- c(afid,yr_num, season_num,temp2.df$cnt[i])
+  ArticleFactSummary.df[nrow(ArticleFactSummary.df) + 1, ] <- newrow
+  season_num <- season_num +1
+  afid <- afid +1
+} 
+ArticleFactSummary.df
+```
+```{sql connection=dbcon,, output.var="temp3.df"}
+select PubDateDim.season,  count(ArticleFact.article_id) as cnt 
+from ArticleFact
+join PubDateDim on ArticleFact.pubdate_id = PubDateDim.pubdate_id
+where PubDateDim.pubdateyear = '2012'
+group by PubDateDim.season
+```
+### Inserting seasonal data
+```{r}
+len <- count(temp3.df)[[1]]
+yr_num <- 1
+season_num <- 1
+afid <- last(ArticleFactSummary.df$art_id) +1
+for (i in 1:len){
+  newrow <- c(afid,yr_num, season_num,temp3.df$cnt[i])
+  ArticleFactSummary.df[nrow(ArticleFactSummary.df) + 1, ] <- newrow
+  season_num <- season_num +1
+  afid <- afid +1
+} 
+ArticleFactSummary.df
+```
+### Extracting seasonal data
+```{sql connection=dbcon,, output.var="temp4.df"}
+select PubDateDim.season,  count(ArticleFact.article_id) as cnt 
+from ArticleFact
+join PubDateDim on ArticleFact.pubdate_id = PubDateDim.pubdate_id
+where PubDateDim.pubdateyear = '2013'
+group by PubDateDim.season
+```
+### Inserting seasonal data
+```{r}
+len <- count(temp4.df)[[1]]
+yr_num <- 2
+season_num <- 1
+afid <- last(ArticleFactSummary.df$art_id) +1
+for (i in 1:len){
+  newrow <- c(afid,yr_num, season_num,temp4.df$cnt[i])
+  ArticleFactSummary.df[nrow(ArticleFactSummary.df) + 1, ] <- newrow
+  season_num <- season_num +1
+  afid <- afid +1
+} 
+ArticleFactSummary.df
+```
+### Inserting into the SQL table
+```{r}
+dbWriteTable(dbcon, 'ArticleFactSummary', ArticleFactSummary.df,overwrite = T)
+```
+### Extracting the data for all years
+```{sql connection=dbcon,, output.var="plot1.df"}
+select art_count
+from ArticleFactSummary
+where
+yr_pub != 0 and season_pub == 0
+```
+### Extracting the data for all seasons
+```{sql connection=dbcon,, output.var="plot2.df"}
+select art_count
+from ArticleFactSummary
+where
+yr_pub == 0 and season_pub != 0
+```
+### Creating a second Article Fact Summary Table for type of media publication
+```{r}
+ArticleFactSummary1.df <- data.frame (artl_id = integer(),
+                          yr_pub = integer(),
+                          season_pub = integer(),
+                          med_typ = integer(),
+                          med_count = integer(),
+                          stringsAsFactors = F)
+```
+### Extracting data for all years and all seasons
+```{sql connection=dbcon,, output.var="art1"}
+-- for all years
+select ArticleDim.article_pubmodel ,count(ArticleFact.article_id) as cnt 
+from ArticleFact
+join  ArticleDim on ArticleDim.article_id = ArticleFact.article_id
+group by ArticleDim.article_pubmodel
+
+```
+### Inserting data extracted above
+```{r}
+len <- count(art1)[[1]]
+yr_num <- 0
+season_num <- 0
+med_ty <- 1
+afid <-1
+
+# inserting data
+for (i in 1:len){
+  newrow <- c(afid,yr_num, season_num,med_ty, art1$cnt[i])
+  ArticleFactSummary1.df[nrow(ArticleFactSummary1.df) + 1, ] <- newrow
+  med_ty <- med_ty +1
+  afid <- afid +1
+} 
+ArticleFactSummary1.df
+```
+### Extracting data for yearly
+```{sql connection=dbcon,, output.var="art2"}
+-- yearly
+select PubDateDim.pubdateyear,ArticleDim.article_pubmodel ,count(ArticleFact.article_id) as cnt 
+from ArticleFact
+join  ArticleDim on ArticleDim.article_id = ArticleFact.article_id
+join  PubDateDim on PubDateDim.pubdate_id = ArticleFact.pubdate_id
+where PubDateDim.pubdateyear = '2012'
+group by ArticleDim.article_pubmodel, PubDateDim.pubdateyear
+
+```
+### Extracting data yearly
+```{sql connection=dbcon,, output.var="art3"}
+-- yearly
+select PubDateDim.pubdateyear,ArticleDim.article_pubmodel ,count(ArticleFact.article_id) as cnt 
+from ArticleFact
+join  ArticleDim on ArticleDim.article_id = ArticleFact.article_id
+join  PubDateDim on PubDateDim.pubdate_id = ArticleFact.pubdate_id
+where PubDateDim.pubdateyear = '2013' 
+group by ArticleDim.article_pubmodel, PubDateDim.pubdateyear
+
+```
+
+### inserting yearly data
+```{r}
+len <- count(art2)[[1]]
+yr_num <- 1
+season_num <- 0
+med_ty <- 1
+afid <- last(ArticleFactSummary1.df$artl_id) +1
+
+# inserting data
+for (i in 1:len){
+  newrow <- c(afid,yr_num, season_num,med_ty, art2$cnt[i])
+  ArticleFactSummary1.df[nrow(ArticleFactSummary1.df) + 1, ] <- newrow
+  med_ty <- med_ty +1
+  afid <- afid +1
+  yr_num <- yr_num + 1
+} 
+ArticleFactSummary1.df
+```
+### Inserting yearly data
+```{r}
+len <- count(art3)[[1]]
+yr_num <- 1
+season_num <- 0
+med_ty <- 1
+afid <- last(ArticleFactSummary1.df$artl_id) +1
+
+# inserting data
+for (i in 1:len){
+  newrow <- c(afid,yr_num, season_num,med_ty, art3$cnt[i])
+  ArticleFactSummary1.df[nrow(ArticleFactSummary1.df) + 1, ] <- newrow
+  med_ty <- med_ty +1
+  afid <- afid +1
+  yr_num <- yr_num + 1
+} 
+ArticleFactSummary1.df
+```
+### Extracting data for seasons
+```{sql connection=dbcon,, output.var="art4"}
+select PubDateDim.season,ArticleDim.article_pubmodel ,count(ArticleFact.article_id) as cnt 
+from ArticleFact
+join  ArticleDim on ArticleDim.article_id = ArticleFact.article_id
+join  PubDateDim on PubDateDim.pubdate_id = ArticleFact.pubdate_id
+group by PubDateDim.season
+```
+### Inserting into the seasonal data
+```{r}
+len <- count(art4)[[1]]
+yr_num <- 0
+season_num <- 1
+med_ty <- 1
+afid <- last(ArticleFactSummary1.df$artl_id) +1
+
+# inserting data
+for (i in 1:len){
+  newrow <- c(afid,yr_num, season_num,med_ty, art4$cnt[i])
+  ArticleFactSummary1.df[nrow(ArticleFactSummary1.df) + 1, ] <- newrow
+  med_ty <- med_ty +1
+  afid <- afid +1
+ 
+} 
+ArticleFactSummary1.df
+```
+### Inserting data into the second summary SQL table
+```{r}
+dbWriteTable(dbcon, 'ArticleFactSummary1', ArticleFactSummary1.df,overwrite = T)
+```
+
+## Exploring and Mine Data
+### Using the data warehouse we created, we wil be exploring whether the publications show a seasonal pattern.
+## Answer 3 : Visualizations
+### Presenting the Yearly Pattern of Article Publication
+```{r yearly}
+x1 <- dbGetQuery(dbcon,"
+select PubDateDim.pubdateyear,count(ArticleFact.article_id) as cnt
+from ArticleFact
+join  PubDateDim on PubDateDim.pubdate_id = ArticleFact.pubdate_id 
+group by PubDateDim.pubdateyear")
+#x1
+ggplot(x1, aes(y=cnt, x=pubdateyear)) + 
+    geom_bar(position="dodge", stat="identity",width = 0.3, fill = "red4") +
+  labs(title = "Yearly Pattern of Article Publication", 
+       x = "Year", 
+       y = "Number of articles published") + 
+  geom_text(aes(label=cnt), 
+            position=position_dodge(width=0.3), vjust=-0.3)+
+  theme(panel.border = element_rect(color = "red4",
+                                    fill = NA,
+                                    size = .5))
+```
+We can see that there has been a drastic decrease in the number of articles published in 2013 as compared to the previous.
+
+```{r season}
+x1 <- dbGetQuery(dbcon,"
+select PubDateDim.season,count(ArticleFact.article_id) as cnt
+from ArticleFact
+join  PubDateDim on PubDateDim.pubdate_id = ArticleFact.pubdate_id 
+group by PubDateDim.season")
+#x1
+ggplot(x1, aes(y=cnt, x=season)) + 
+    geom_bar(position="dodge", stat="identity",width = 0.4, fill = "red4") +
+  labs(title = "Seasonal pattern of articles published", 
+       x = "Year", 
+       y = "Number of articles published") +
+  geom_text(aes(label=cnt), position=position_dodge(width=0.4), vjust=-0.3)+
+  theme(panel.border = element_rect(color = "red4",
+                                    fill = NA,
+                                    size = .5))
+```
+In the trends of number of articles published per season for all years, we observe that Spring has the highest publications closely followed by Summer and Winter.Fall has the least number of publications. 
+
+```{r yearly_by_season}
+x1 <- dbGetQuery(dbcon,"
+select PubDateDim.pubdateyear,
+PubDateDim.season,
+count(ArticleFact.article_id) as cnt
+from ArticleFact
+join  PubDateDim on PubDateDim.pubdate_id = ArticleFact.pubdate_id 
+group by PubDateDim.pubdateyear,PubDateDim.season")
+#x1
+ggplot(x1, aes(y=cnt, x=pubdateyear,fill = season)) + 
+    geom_bar(position="dodge", stat="identity",width = 0.5) +
+  labs(title = "Articles published per Year by Season", 
+       x = "Year", 
+       y = "Number of articles published") +
+  scale_fill_manual(values = c("darkgreen","red4","darkorange","deepskyblue4" ))+
+  geom_text(aes(label=cnt), position=position_dodge(width=0.5), vjust=-0.3) +
+  theme(panel.border = element_rect(color = "red4",
+                                    fill = NA,
+                                    size = .5))
+```
+Comnined observation of the above two confirms to the previous observations with an additional insight that the drop in publications is from a larger view that there are no Summer and Fall publications at all.
+
+```{r pubmedia}
+x1 <- dbGetQuery(dbcon,"select ArticleDim.article_pubmodel ,
+count(ArticleFact.article_id) as cnt 
+from ArticleFact
+join  ArticleDim on ArticleDim.article_id = ArticleFact.article_id
+join  PubDateDim on PubDateDim.pubdate_id = ArticleFact.pubdate_id
+
+group by ArticleDim.article_pubmodel")
+ggplot(x1, aes(y=cnt, x=article_pubmodel)) + 
+    geom_bar(position="dodge", stat="identity",width = 0.2, fill = "red4") +
+  labs(title = "Publishing media pattern of articles", 
+       x = "Media Type", 
+       y = "Number of articles published") +
+  geom_text(aes(label=cnt), position=position_dodge(width=0.2), vjust=-0.3) +
+  theme(panel.border = element_rect(color = "red4",
+                                    fill = NA,
+                                    size = .5))
+```
+Here we can deduce that the Print-Electronic type of publication is nearly double (little less than double) the Print type of publication for the articles in journals. This confirms to the assumption that the trend of publication preference to online medium (citing less production/paper costs,easy acces to it online) is higher.   
+
+```{r pubmediabyyear}
+x1 <- dbGetQuery(dbcon,"select PubDateDim.pubdateyear,
+ArticleDim.article_pubmodel ,
+count(ArticleFact.article_id) as cnt 
+from ArticleFact
+join  ArticleDim on ArticleDim.article_id = ArticleFact.article_id
+join  PubDateDim on PubDateDim.pubdate_id = ArticleFact.pubdate_id
+
+group by PubDateDim.pubdateyear,ArticleDim.article_pubmodel")
+ggplot(x1, aes(fill=article_pubmodel, y=cnt, x=pubdateyear)) + 
+    geom_bar(position="dodge", stat="identity",width = 0.4) +
+  labs(title = "Publishing media pattern of articles by year", 
+       x = "Year", 
+       y = "Number of articles published") +
+  scale_fill_manual(values = c("red4","darkgreen")) +
+  geom_text(aes(label=cnt), position=position_dodge(width=0.4), vjust=-0.3) +
+  theme(panel.border = element_rect(color = "red4",
+                                    fill = NA,
+                                    size = .5))
+```
+As we already know(and have seen) that the publications have gone down drastically in 2013, the major observation is that the Print medium has cut to 0 altogether and the only preferred medium is Print_Electronic here.  
+
+```{r pubmediabyseason}
+x1 <- dbGetQuery(dbcon,"select PubDateDim.season,
+ArticleDim.article_pubmodel ,
+count(ArticleFact.article_id) as cnt 
+from ArticleFact
+join  ArticleDim on ArticleDim.article_id = ArticleFact.article_id
+join  PubDateDim on PubDateDim.pubdate_id = ArticleFact.pubdate_id
+group by PubDateDim.season,ArticleDim.article_pubmodel")
+#x1
+ggplot(x1, aes(fill=article_pubmodel, y=cnt, x=season)) + 
+    geom_bar(position="dodge", stat="identity",width=0.6) +
+  labs(title = "Sesonal pattern of articles published by published medium", 
+       x = "Seasons", 
+       y = "Number of articles published") +
+scale_fill_manual(values = c("red4","darkgreen")) +
+  geom_text(aes(label=cnt), position=position_dodge(width=0.6), vjust=-0.3) +
+  theme(panel.border = element_rect(color = "red4",
+                                    fill = NA,
+                                    size = .5))
+```
+As already visualized above that the season count of articles is leas for fall, it is noteworthy to observe that Summer and Spring and Winter are preferrably online wheras Fall has more Print than Electronic preferrence,evne though the Print medium is same for Fall,Winter and Spring and least in Summers.
+
+```{r numerofauthors}
+x1 <- dbGetQuery(dbcon,"select AuthorListDim.authorlist_num,
+count(ArticleFact.article_id) as cnt 
+from ArticleFact
+join  ArticleDim on ArticleDim.article_id = ArticleFact.article_id
+join  PubDateDim on PubDateDim.pubdate_id = ArticleFact.pubdate_id
+join AuthorListDim on AuthorListDim.authorlist_num = ArticleFact.authorlist_id
+group by AuthorListDim.authorlist_num")
+#x1
+ggplot(x1, aes(cnt)) +
+  geom_bar(fill = "red4",width = 0.5) +
+  scale_x_continuous(breaks=c(1,2,3,4,5,6,7,8,9,10,11,12)) +
+  labs(title = "Number of authors per article", 
+       x = "Number of Authors", 
+       y = "Frequency") +
+  theme(panel.border = element_rect(color = "red4",
+                                    fill = NA,
+                                    size = .5))
+```
+
+We see that mostly article by written by 6 or 7 authors.
+
+```{r}
+dbDisconnect(dbcon)
+```
