@@ -16,13 +16,18 @@ Steps involved:
    <p align="left">
    <img src="https://github.com/sharmasapna/Pubmed_datawarehousing/blob/main/images/Snow_Flake_ERD.png" width= 50% height= 50%>
    </p>
+   
 9. Data Mining and Visualization
-  9.1 Creating Summary Fact Tables
-      ERD:
-      <img src="https://github.com/sharmasapna/Pubmed_datawarehousing/blob/main/images/Summary_ERD.png" width= 50% height= 50%>
 
-  9.2 Visualising the Data for seasonal Patterns in Journal Publication
-Some visualizations are here
+        9.1 Creating Summary Fact Tables   
+            ERD:   
+      
+   <p align="left">
+   <img src="https://github.com/sharmasapna/Pubmed_datawarehousing/blob/main/images/Summary_ERD.png" width= 50% height= 50%>
+   </p>
+      
+        9.2 Visualising the Data for seasonal Patterns in Journal Publication
+            Some visualizations are here
 <img src="https://github.com/sharmasapna/Pubmed_datawarehousing/blob/main/images/image1.png" width= 50% height= 50%>
 <img src="https://github.com/sharmasapna/Pubmed_datawarehousing/blob/main/images/image2.png" width= 50% height= 50%>
 <img src="https://github.com/sharmasapna/Pubmed_datawarehousing/blob/main/images/image3.png" width= 50% height= 50%>
