@@ -13,7 +13,9 @@ Steps involved:
 7. Creaing the Snowflake Schema (Creation of Fact table and dimension tables)
 8. Making the ERD of the snowflake schema
    ERD:
+   <p align="left">
    <img src="https://github.com/sharmasapna/Pubmed_datawarehousing/blob/main/images/Snow_Flake_ERD.png" width= 50% height= 50%>
+   </p>
 9. Data Mining and Visualization
   9.1 Creating Summary Fact Tables
       ERD:
